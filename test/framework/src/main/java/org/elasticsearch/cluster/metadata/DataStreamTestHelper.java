@@ -748,7 +748,8 @@ public final class DataStreamTestHelper {
             null,
             EmptySystemIndices.INSTANCE,
             false,
-            new IndexSettingProviders(providers)
+            new IndexSettingProviders(providers),
+            telemetryProvider.getMeterRegistry()
         );
         MetadataIndexAliasesService indexAliasesService = new MetadataIndexAliasesService(clusterService, indicesService, registry);
         return new MetadataRolloverService(

@@ -81,6 +81,9 @@ import org.elasticsearch.indices.InvalidIndexNameException;
 import org.elasticsearch.indices.ShardLimitValidator;
 import org.elasticsearch.indices.SystemIndexDescriptor;
 import org.elasticsearch.indices.SystemIndices;
+import org.elasticsearch.telemetry.TelemetryProvider;
+import org.elasticsearch.telemetry.metric.LongWithAttributes;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 
@@ -99,6 +102,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -127,6 +131,7 @@ import static org.elasticsearch.index.IndexModule.INDEX_STORE_TYPE_SETTING;
  */
 public class MetadataCreateIndexService {
     public static TransportVersion INDEX_LIMIT_EXCEEDED_EXCEPTION_VERSION = TransportVersion.fromName("index_limit_exceeded_exception");
+    public static final String USER_INDEX_TOTAL_METRIC_NAME = "cluster.user.index.total.current";
 
     // Deliberately not registered so it can only be set in tests/plugins.
     public static final Setting<Priority> CREATE_INDEX_PRIORITY_SETTING = Setting.enumSetting(
@@ -189,6 +194,7 @@ public class MetadataCreateIndexService {
     private final ThreadPool threadPool;
     private final ClusterBlocksTransformer blocksTransformerUponIndexCreation;
     private final Priority clusterStateUpdateTaskPriority;
+    private final ConcurrentHashMap<ProjectId, Long> userIndexTotalByProject;
 
     private volatile TimeValue maxMasterNodeTimeout;
     private volatile int maxIndicesPerProject;
@@ -206,7 +212,8 @@ public class MetadataCreateIndexService {
         final NamedXContentRegistry xContentRegistry,
         final SystemIndices systemIndices,
         final boolean forbidPrivateIndexSettings,
-        final IndexSettingProviders indexSettingProviders
+        final IndexSettingProviders indexSettingProviders,
+        final MeterRegistry meterRegistry
     ) {
         this.settings = settings;
         this.clusterService = clusterService;
@@ -222,6 +229,8 @@ public class MetadataCreateIndexService {
         this.threadPool = threadPool;
         this.blocksTransformerUponIndexCreation = createClusterBlocksTransformerForIndexCreation(settings);
         this.clusterStateUpdateTaskPriority = CREATE_INDEX_PRIORITY_SETTING.get(settings);
+        this.userIndexTotalByProject = new ConcurrentHashMap<>();
+        setUpMetrics(meterRegistry);
 
         if (clusterService.getClusterSettings().isDynamicSetting(CREATE_INDEX_MAX_TIMEOUT_SETTING.getKey())) {
             // setting only registered in some tests today
@@ -244,6 +253,49 @@ public class MetadataCreateIndexService {
         }
     }
 
+    private void setUpMetrics(MeterRegistry meterRegistry) {
+        meterRegistry.registerLongGauge(
+            USE_INDEX_REFRESH_BLOCK_SETTING_NAME,
+            "Total number of user indices",
+            "index",
+            () -> new LongWithAttributes(userIndexTotalByProject.get(ProjectId.DEFAULT))
+        );
+    }
+
+    /**
+     * Constructor for testing only. Do not use in production
+     */
+    public MetadataCreateIndexService(
+        final Settings settings,
+        final ClusterService clusterService,
+        final IndicesService indicesService,
+        final AllocationService allocationService,
+        final ShardLimitValidator shardLimitValidator,
+        final Environment env,
+        final IndexScopedSettings indexScopedSettings,
+        final ThreadPool threadPool,
+        final NamedXContentRegistry xContentRegistry,
+        final SystemIndices systemIndices,
+        final boolean forbidPrivateIndexSettings,
+        final IndexSettingProviders indexSettingProviders
+    ) {
+        this(
+            settings,
+            clusterService,
+            indicesService,
+            allocationService,
+            shardLimitValidator,
+            env,
+            indexScopedSettings,
+            threadPool,
+            xContentRegistry,
+            systemIndices,
+            forbidPrivateIndexSettings,
+            indexSettingProviders,
+            TelemetryProvider.NOOP.getMeterRegistry()
+        );
+    }
+
     public void validateIndexLimit(ProjectMetadata projectMetadata, CreateIndexClusterStateUpdateRequest request) {
         if (maxIndicesPerProjectEnabled == false) {
             return;
@@ -263,6 +315,7 @@ public class MetadataCreateIndexService {
                     && systemIndices.isFeatureAssociatedIndex(indexMetadata.getIndex().getName()) == false
             )
             .count();
+        this.userIndexTotalByProject.put(projectMetadata.id(), totalUserIndices);
         if (totalUserIndices >= maxIndicesPerProject) {
             throw new IndexLimitExceededException(
                 "This action would add an index, but this project currently has ["
