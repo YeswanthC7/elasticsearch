@@ -131,7 +131,7 @@ import static org.elasticsearch.index.IndexModule.INDEX_STORE_TYPE_SETTING;
  */
 public class MetadataCreateIndexService {
     public static TransportVersion INDEX_LIMIT_EXCEEDED_EXCEPTION_VERSION = TransportVersion.fromName("index_limit_exceeded_exception");
-    public static final String USER_INDEX_TOTAL_METRIC_NAME = "cluster.user.index.total.current";
+    public static final String USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME = "cluster.user.index.total.by.project.current";
 
     // Deliberately not registered so it can only be set in tests/plugins.
     public static final Setting<Priority> CREATE_INDEX_PRIORITY_SETTING = Setting.enumSetting(
@@ -254,11 +254,20 @@ public class MetadataCreateIndexService {
     }
 
     private void setUpMetrics(MeterRegistry meterRegistry) {
-        meterRegistry.registerLongGauge(
-            USE_INDEX_REFRESH_BLOCK_SETTING_NAME,
-            "Total number of user indices",
+        meterRegistry.registerLongsGauge(
+            USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME,
+            "Total number of user indices by project",
             "index",
-            () -> new LongWithAttributes(userIndexTotalByProject.get(ProjectId.DEFAULT))
+            () -> {
+                if (userIndexTotalByProject.isEmpty()) {
+                    return List.of();
+                }
+
+                return userIndexTotalByProject.entrySet()
+                    .stream()
+                    .map(entry -> new LongWithAttributes(entry.getValue(), Map.of("serverless_project_id", entry.getKey())))
+                    .toList();
+            }
         );
     }
 

@@ -75,6 +75,9 @@ import org.elasticsearch.indices.SystemIndexDescriptor;
 import org.elasticsearch.indices.SystemIndexDescriptorUtils;
 import org.elasticsearch.indices.SystemIndices;
 import org.elasticsearch.snapshots.EmptySnapshotsInfoService;
+import org.elasticsearch.telemetry.InstrumentType;
+import org.elasticsearch.telemetry.Measurement;
+import org.elasticsearch.telemetry.RecordingMeterRegistry;
 import org.elasticsearch.test.ClusterServiceUtils;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.TransportVersionUtils;
@@ -113,6 +116,7 @@ import static org.elasticsearch.cluster.metadata.IndexMetadata.SETTING_READ_ONLY
 import static org.elasticsearch.cluster.metadata.IndexMetadata.SETTING_VERSION_CREATED;
 import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.CLUSTER_MAX_INDICES_PER_PROJECT_ENABLED_SETTING;
 import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.CLUSTER_MAX_INDICES_PER_PROJECT_SETTING;
+import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME;
 import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.buildIndexMetadata;
 import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.clusterStateCreateIndex;
 import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.getIndexNumberOfRoutingShards;
@@ -129,6 +133,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.hasValue;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
@@ -309,6 +314,8 @@ public class MetadataCreateIndexServiceTests extends ESTestCase {
             .put(CLUSTER_MAX_INDICES_PER_PROJECT_ENABLED_SETTING.getKey(), true)
             .build();
 
+        RecordingMeterRegistry meterRegistry = new RecordingMeterRegistry();
+
         withTemporaryClusterService((clusterService, threadPool) -> {
             var totalUserIndices = indexLimit + randomIntBetween(0, 10);
             String[] indices = new String[totalUserIndices + randomIntBetween(1, 10)];
@@ -351,7 +358,8 @@ public class MetadataCreateIndexServiceTests extends ESTestCase {
                 null,
                 systemIndices,
                 false,
-                new IndexSettingProviders(Set.of())
+                new IndexSettingProviders(Set.of()),
+                meterRegistry
             );
 
             CreateIndexClusterStateUpdateRequest userIndexCreateRequest = new CreateIndexClusterStateUpdateRequest(
@@ -366,6 +374,13 @@ public class MetadataCreateIndexServiceTests extends ESTestCase {
                 () -> checkerService.validateIndexLimit(clusterState.getMetadata().getProject(projectId), userIndexCreateRequest)
             );
             assertThat(e.getMessage(), startsWith("This action would add an index, but this project currently has ["));
+            meterRegistry.getRecorder().collect();
+
+            List<Measurement> measurements = meterRegistry.getRecorder()
+                .getMeasurements(InstrumentType.LONG_GAUGE, USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME);
+
+            assertThat(measurements, hasSize(1));
+            assertThat(measurements.getFirst().getLong(), is((long) indices.length));
 
             CreateIndexClusterStateUpdateRequest systemIndexCreateRequest = new CreateIndexClusterStateUpdateRequest(
                 "test",
