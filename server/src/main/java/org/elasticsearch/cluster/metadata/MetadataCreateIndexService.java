@@ -131,7 +131,7 @@ import static org.elasticsearch.index.IndexModule.INDEX_STORE_TYPE_SETTING;
  */
 public class MetadataCreateIndexService {
     public static TransportVersion INDEX_LIMIT_EXCEEDED_EXCEPTION_VERSION = TransportVersion.fromName("index_limit_exceeded_exception");
-    public static final String USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME = "cluster.user.index.total.by.project.current";
+    public static final String USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME = "es.cluster.user.index.total.by.project.current";
 
     // Deliberately not registered so it can only be set in tests/plugins.
     public static final Setting<Priority> CREATE_INDEX_PRIORITY_SETTING = Setting.enumSetting(
