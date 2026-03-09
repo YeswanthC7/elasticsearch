@@ -24,6 +24,7 @@ public class UserIndicesMetrics {
 
     public static final String USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME = "es.cluster.user.index.total.by.project.current";
     private final ConcurrentHashMap<ProjectId, Long> userIndexTotalByProject;
+    private volatile boolean nodeIsMaster = false;
 
     public UserIndicesMetrics(MeterRegistry meterRegistry) {
         this.userIndexTotalByProject = new ConcurrentHashMap<>();
@@ -32,7 +33,7 @@ public class UserIndicesMetrics {
             "Total number of user indices by project",
             "index",
             () -> {
-                if (userIndexTotalByProject.isEmpty()) {
+                if (userIndexTotalByProject.isEmpty() || nodeIsMaster == false) {
                     return List.of();
                 }
 
@@ -48,4 +49,11 @@ public class UserIndicesMetrics {
         this.userIndexTotalByProject.put(projectId, userIndexTotal);
     }
 
+    public void setNodeIsMaster(boolean nodeIsMaster) {
+        this.nodeIsMaster = nodeIsMaster;
+    }
+
+    public void clear() {
+        this.userIndexTotalByProject.clear();
+    }
 }

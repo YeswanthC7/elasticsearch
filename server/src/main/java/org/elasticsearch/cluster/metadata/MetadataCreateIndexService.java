@@ -247,6 +247,15 @@ public class MetadataCreateIndexService {
         } else {
             maxIndicesPerProject = CLUSTER_MAX_INDICES_PER_PROJECT_SETTING.get(clusterService.getSettings());
         }
+
+        clusterService.addListener(event -> {
+            if (event.localNodeMaster() == false) {
+                userIndicesMetrics.clear();
+            }
+            if (event.localNodeMaster() != event.previousState().nodes().isLocalNodeElectedMaster()) {
+                userIndicesMetrics.setNodeIsMaster(event.localNodeMaster());
+            }
+        });
     }
 
     /**
