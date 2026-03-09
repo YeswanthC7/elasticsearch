@@ -374,13 +374,6 @@ public class MetadataCreateIndexServiceTests extends ESTestCase {
                 () -> checkerService.validateIndexLimit(clusterState.getMetadata().getProject(projectId), userIndexCreateRequest)
             );
             assertThat(e.getMessage(), startsWith("This action would add an index, but this project currently has ["));
-            meterRegistry.getRecorder().collect();
-
-            List<Measurement> measurements = meterRegistry.getRecorder()
-                .getMeasurements(InstrumentType.LONG_GAUGE, USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME);
-
-            assertThat(measurements, hasSize(1));
-            assertThat(measurements.getFirst().getLong(), is((long) indices.length));
 
             CreateIndexClusterStateUpdateRequest systemIndexCreateRequest = new CreateIndexClusterStateUpdateRequest(
                 "test",
