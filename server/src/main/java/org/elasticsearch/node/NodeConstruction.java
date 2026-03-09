@@ -54,6 +54,7 @@ import org.elasticsearch.cluster.metadata.MetadataUpdateSettingsService;
 import org.elasticsearch.cluster.metadata.SystemIndexMetadataUpgradeService;
 import org.elasticsearch.cluster.metadata.TemplateDecoratorProvider;
 import org.elasticsearch.cluster.metadata.TemplateUpgradeService;
+import org.elasticsearch.cluster.metadata.UserIndicesMetrics;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodeRole;
 import org.elasticsearch.cluster.project.ProjectResolver;
@@ -802,6 +803,7 @@ class NodeConstruction {
             repositoriesService,
             rerouteServiceReference::get
         );
+        UserIndicesMetrics userIndicesMetrics = new UserIndicesMetrics(telemetryProvider.getMeterRegistry());
         final ClusterModule clusterModule = new ClusterModule(
             settings,
             clusterService,
@@ -812,7 +814,8 @@ class NodeConstruction {
             systemIndices,
             projectResolver,
             getWriteLoadForecaster(threadPool, settings, clusterService.getClusterSettings()),
-            telemetryProvider
+            telemetryProvider,
+            userIndicesMetrics
         );
         modules.add(clusterModule);
 
@@ -950,7 +953,7 @@ class NodeConstruction {
             systemIndices,
             forbidPrivateIndexSettings,
             indexSettingProviders,
-            telemetryProvider.getMeterRegistry()
+            userIndicesMetrics
         );
 
         final MetadataUpdateSettingsService metadataUpdateSettingsService = new MetadataUpdateSettingsService(

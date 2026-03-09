@@ -23,11 +23,13 @@ import org.elasticsearch.common.util.concurrent.DeterministicTaskQueue;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexVersion;
+import org.elasticsearch.indices.EmptySystemIndices;
 import org.elasticsearch.repositories.IndexId;
 import org.elasticsearch.snapshots.Snapshot;
 import org.elasticsearch.snapshots.SnapshotId;
 import org.elasticsearch.snapshots.SnapshotInProgressException;
 import org.elasticsearch.snapshots.SnapshotInfoTestUtils;
+import org.elasticsearch.telemetry.RecordingMeterRegistry;
 import org.elasticsearch.test.ClusterServiceUtils;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.index.IndexVersionUtils;
@@ -59,6 +61,7 @@ import static org.mockito.Mockito.when;
 public class MetadataDeleteIndexServiceTests extends ESTestCase {
     private AllocationService allocationService;
     private MetadataDeleteIndexService service;
+    private RecordingMeterRegistry meterRegistry;
 
     @Override
     @Before
@@ -68,10 +71,13 @@ public class MetadataDeleteIndexServiceTests extends ESTestCase {
         when(allocationService.reroute(any(ClusterState.class), any(String.class), any())).thenAnswer(
             mockInvocation -> mockInvocation.getArguments()[0]
         );
+        meterRegistry = new RecordingMeterRegistry();
         service = new MetadataDeleteIndexService(
             Settings.EMPTY,
             ClusterServiceUtils.createClusterService(new DeterministicTaskQueue().getThreadPool()),
-            allocationService
+            allocationService,
+            new UserIndicesMetrics(meterRegistry),
+            EmptySystemIndices.INSTANCE
         );
     }
 

@@ -81,8 +81,6 @@ import org.elasticsearch.indices.InvalidIndexNameException;
 import org.elasticsearch.indices.ShardLimitValidator;
 import org.elasticsearch.indices.SystemIndexDescriptor;
 import org.elasticsearch.indices.SystemIndices;
-import org.elasticsearch.telemetry.TelemetryProvider;
-import org.elasticsearch.telemetry.metric.LongWithAttributes;
 import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
@@ -102,7 +100,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -194,11 +191,11 @@ public class MetadataCreateIndexService {
     private final ThreadPool threadPool;
     private final ClusterBlocksTransformer blocksTransformerUponIndexCreation;
     private final Priority clusterStateUpdateTaskPriority;
-    private final ConcurrentHashMap<ProjectId, Long> userIndexTotalByProject;
 
     private volatile TimeValue maxMasterNodeTimeout;
     private volatile int maxIndicesPerProject;
     private volatile boolean maxIndicesPerProjectEnabled;
+    private final UserIndicesMetrics userIndicesMetrics;
 
     public MetadataCreateIndexService(
         final Settings settings,
@@ -213,7 +210,7 @@ public class MetadataCreateIndexService {
         final SystemIndices systemIndices,
         final boolean forbidPrivateIndexSettings,
         final IndexSettingProviders indexSettingProviders,
-        final MeterRegistry meterRegistry
+        final UserIndicesMetrics userIndicesMetrics
     ) {
         this.settings = settings;
         this.clusterService = clusterService;
@@ -229,8 +226,7 @@ public class MetadataCreateIndexService {
         this.threadPool = threadPool;
         this.blocksTransformerUponIndexCreation = createClusterBlocksTransformerForIndexCreation(settings);
         this.clusterStateUpdateTaskPriority = CREATE_INDEX_PRIORITY_SETTING.get(settings);
-        this.userIndexTotalByProject = new ConcurrentHashMap<>();
-        setUpMetrics(meterRegistry);
+        this.userIndicesMetrics = userIndicesMetrics;
 
         if (clusterService.getClusterSettings().isDynamicSetting(CREATE_INDEX_MAX_TIMEOUT_SETTING.getKey())) {
             // setting only registered in some tests today
@@ -251,24 +247,6 @@ public class MetadataCreateIndexService {
         } else {
             maxIndicesPerProject = CLUSTER_MAX_INDICES_PER_PROJECT_SETTING.get(clusterService.getSettings());
         }
-    }
-
-    private void setUpMetrics(MeterRegistry meterRegistry) {
-        meterRegistry.registerLongsGauge(
-            USER_INDEX_TOTAL_BY_PROJECT_METRIC_NAME,
-            "Total number of user indices by project",
-            "index",
-            () -> {
-                if (userIndexTotalByProject.isEmpty()) {
-                    return List.of();
-                }
-
-                return userIndexTotalByProject.entrySet()
-                    .stream()
-                    .map(entry -> new LongWithAttributes(entry.getValue(), Map.of("serverless_project_id", entry.getKey())))
-                    .toList();
-            }
-        );
     }
 
     /**
@@ -301,8 +279,17 @@ public class MetadataCreateIndexService {
             systemIndices,
             forbidPrivateIndexSettings,
             indexSettingProviders,
-            TelemetryProvider.NOOP.getMeterRegistry()
+            new UserIndicesMetrics(MeterRegistry.NOOP)
         );
+    }
+
+    public static long getTotalUserIndices(SystemIndices systemIndices, ProjectMetadata projectMetadata) {
+        return projectMetadata.stream()
+            .filter(
+                indexMetadata -> indexMetadata.isSystem() == false
+                    && systemIndices.isFeatureAssociatedIndex(indexMetadata.getIndex().getName()) == false
+            )
+            .count();
     }
 
     public void validateIndexLimit(ProjectMetadata projectMetadata, CreateIndexClusterStateUpdateRequest request) {
@@ -318,13 +305,7 @@ public class MetadataCreateIndexService {
             return;
         }
 
-        var totalUserIndices = projectMetadata.stream()
-            .filter(
-                indexMetadata -> indexMetadata.isSystem() == false
-                    && systemIndices.isFeatureAssociatedIndex(indexMetadata.getIndex().getName()) == false
-            )
-            .count();
-        this.userIndexTotalByProject.put(projectMetadata.id(), totalUserIndices);
+        var totalUserIndices = getTotalUserIndices(systemIndices, projectMetadata);
         if (totalUserIndices >= maxIndicesPerProject) {
             throw new IndexLimitExceededException(
                 "This action would add an index, but this project currently has ["
@@ -460,6 +441,12 @@ public class MetadataCreateIndexService {
                         request.projectId(),
                         request.waitForActiveShards()
                     );
+
+                    userIndicesMetrics.recordUserIndexTotal(
+                        request.projectId(),
+                        getTotalUserIndices(systemIndices, clusterService.state().metadata().getProject(request.projectId()))
+                    );
+
                     ActiveShardsObserver.waitForActiveShards(
                         clusterService,
                         request.projectId(),

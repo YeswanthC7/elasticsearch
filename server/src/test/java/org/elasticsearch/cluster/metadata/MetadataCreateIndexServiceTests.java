@@ -359,7 +359,7 @@ public class MetadataCreateIndexServiceTests extends ESTestCase {
                 systemIndices,
                 false,
                 new IndexSettingProviders(Set.of()),
-                meterRegistry
+                new UserIndicesMetrics(meterRegistry)
             );
 
             CreateIndexClusterStateUpdateRequest userIndexCreateRequest = new CreateIndexClusterStateUpdateRequest(

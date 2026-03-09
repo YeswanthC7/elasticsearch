@@ -66,6 +66,7 @@ import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.MetadataCreateIndexService;
 import org.elasticsearch.cluster.metadata.MetadataDeleteIndexService;
 import org.elasticsearch.cluster.metadata.MetadataMappingService;
+import org.elasticsearch.cluster.metadata.UserIndicesMetrics;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodeRole;
 import org.elasticsearch.cluster.node.DiscoveryNodeUtils;
@@ -148,6 +149,7 @@ import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.fetch.FetchPhase;
 import org.elasticsearch.telemetry.TelemetryProvider;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.telemetry.tracing.Tracer;
 import org.elasticsearch.test.client.NoOpClient;
 import org.elasticsearch.threadpool.ThreadPool;
@@ -962,7 +964,13 @@ public class SnapshotResiliencyTestHelper {
                         transportService,
                         clusterService,
                         threadPool,
-                        new MetadataDeleteIndexService(settings, clusterService, allocationService),
+                        new MetadataDeleteIndexService(
+                            settings,
+                            clusterService,
+                            allocationService,
+                            new UserIndicesMetrics(MeterRegistry.NOOP),
+                            EmptySystemIndices.INSTANCE
+                        ),
                         actionFilters,
                         projectResolver,
                         indexNameExpressionResolver,

@@ -61,6 +61,7 @@ import org.elasticsearch.cluster.metadata.MetadataIndexStateService;
 import org.elasticsearch.cluster.metadata.MetadataIndexStateServiceUtils;
 import org.elasticsearch.cluster.metadata.MetadataUpdateSettingsService;
 import org.elasticsearch.cluster.metadata.ProjectId;
+import org.elasticsearch.cluster.metadata.UserIndicesMetrics;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodeUtils;
 import org.elasticsearch.cluster.project.DefaultProjectResolver;
@@ -292,7 +293,13 @@ public class ClusterStateChanges {
             client,
             threadPool
         );
-        MetadataDeleteIndexService deleteIndexService = new MetadataDeleteIndexService(SETTINGS, clusterService, allocationService);
+        MetadataDeleteIndexService deleteIndexService = new MetadataDeleteIndexService(
+            SETTINGS,
+            clusterService,
+            allocationService,
+            new UserIndicesMetrics(MeterRegistry.NOOP),
+            EmptySystemIndices.INSTANCE
+        );
         MetadataUpdateSettingsService metadataUpdateSettingsService = new MetadataUpdateSettingsService(
             clusterService,
             allocationService,

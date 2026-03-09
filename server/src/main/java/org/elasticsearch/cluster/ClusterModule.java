@@ -27,6 +27,7 @@ import org.elasticsearch.cluster.metadata.MetadataMappingService;
 import org.elasticsearch.cluster.metadata.NodesShutdownMetadata;
 import org.elasticsearch.cluster.metadata.RepositoriesMetadata;
 import org.elasticsearch.cluster.metadata.StreamsMetadata;
+import org.elasticsearch.cluster.metadata.UserIndicesMetrics;
 import org.elasticsearch.cluster.project.ProjectResolver;
 import org.elasticsearch.cluster.project.ProjectStateRegistry;
 import org.elasticsearch.cluster.routing.DelayedAllocationService;
@@ -100,6 +101,7 @@ import org.elasticsearch.snapshots.SnapshotsInfoService;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.tasks.TaskResultsService;
 import org.elasticsearch.telemetry.TelemetryProvider;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.ParseField;
@@ -144,6 +146,7 @@ public class ClusterModule extends AbstractModule {
     private final TelemetryProvider telemetryProvider;
     private final DesiredBalanceMetrics desiredBalanceMetrics;
     private final AllocationBalancingRoundMetrics balancingRoundMetrics;
+    private final UserIndicesMetrics userIndicesMetrics;
 
     public ClusterModule(
         Settings settings,
@@ -155,7 +158,8 @@ public class ClusterModule extends AbstractModule {
         SystemIndices systemIndices,
         ProjectResolver projectResolver,
         WriteLoadForecaster writeLoadForecaster,
-        TelemetryProvider telemetryProvider
+        TelemetryProvider telemetryProvider,
+        UserIndicesMetrics userIndicesMetrics
     ) {
         this.clusterPlugins = clusterPlugins;
         this.deciderList = createAllocationDeciders(settings, clusterService.getClusterSettings(), clusterPlugins);
@@ -200,7 +204,14 @@ public class ClusterModule extends AbstractModule {
             shardRoutingRoleStrategy
         );
         this.allocationService.addAllocFailuresResetListenerTo(clusterService);
-        this.metadataDeleteIndexService = new MetadataDeleteIndexService(settings, clusterService, allocationService);
+        this.userIndicesMetrics = userIndicesMetrics;
+        this.metadataDeleteIndexService = new MetadataDeleteIndexService(
+            settings,
+            clusterService,
+            allocationService,
+            userIndicesMetrics,
+            systemIndices
+        );
         this.allocationStatsService = new AllocationStatsService(
             clusterService,
             clusterInfoService,
@@ -208,6 +219,36 @@ public class ClusterModule extends AbstractModule {
             nodeAllocationStatsAndWeightsCalculator
         );
         this.telemetryProvider = telemetryProvider;
+    }
+
+    /**
+     * This Constructor is for test only. Do not use in Production
+     */
+    public ClusterModule(
+        Settings settings,
+        ClusterService clusterService,
+        List<ClusterPlugin> clusterPlugins,
+        ClusterInfoService clusterInfoService,
+        SnapshotsInfoService snapshotsInfoService,
+        ThreadPool threadPool,
+        SystemIndices systemIndices,
+        ProjectResolver projectResolver,
+        WriteLoadForecaster writeLoadForecaster,
+        TelemetryProvider telemetryProvider
+    ) {
+        this(
+            settings,
+            clusterService,
+            clusterPlugins,
+            clusterInfoService,
+            snapshotsInfoService,
+            threadPool,
+            systemIndices,
+            projectResolver,
+            writeLoadForecaster,
+            telemetryProvider,
+            new UserIndicesMetrics(MeterRegistry.NOOP)
+        );
     }
 
     static ShardRoutingRoleStrategy getShardRoutingRoleStrategy(List<ClusterPlugin> clusterPlugins) {
@@ -599,6 +640,7 @@ public class ClusterModule extends AbstractModule {
         bind(AllocationStatsService.class).toInstance(allocationStatsService);
         bind(TelemetryProvider.class).toInstance(telemetryProvider);
         bind(DesiredBalanceMetrics.class).toInstance(desiredBalanceMetrics);
+        bind(UserIndicesMetrics.class).toInstance(userIndicesMetrics);
         bind(MetadataRolloverService.class).asEagerSingleton();
     }
 
